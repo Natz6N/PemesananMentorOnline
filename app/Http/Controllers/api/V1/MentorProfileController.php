@@ -15,15 +15,6 @@ use Illuminate\Support\Facades\Gate;
 
 class MentorProfileController extends Controller
 {
-    /**
-     * Create a new controller instance.
-     */
-    public function __construct()
-    {
-        $this->authorizeResource(MentorProfile::class, 'mentorProfile', [
-            'except' => ['index', 'show', 'getMentorOwnProfile']
-        ]);
-    }
 
     /**
      * Display a listing of the resource.
@@ -198,6 +189,14 @@ class MentorProfileController extends Controller
     public function update(UpdateMentorProfileRequest $request, MentorProfile $mentorProfile)
     {
         try {
+            // Verifikasi bahwa user berhak mengupdate profil mentor ini
+            if (!Gate::allows('manage-mentor-profile', $mentorProfile) && !Gate::allows('admin-access')) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             DB::beginTransaction();
 
             $validated = $request->validated();
@@ -244,6 +243,14 @@ class MentorProfileController extends Controller
     public function destroy(MentorProfile $mentorProfile)
     {
         try {
+            // Verifikasi bahwa user berhak menghapus profil mentor ini
+            if (!Gate::allows('admin-access')) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             // Delete related categories
             MentorCategory::where('mentor_profile_id', $mentorProfile->id)->delete();
 

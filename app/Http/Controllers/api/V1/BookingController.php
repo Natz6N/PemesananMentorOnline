@@ -4,6 +4,7 @@ namespace App\Http\Controllers\api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\MentorAvailabilitie;
 use App\Models\MentorProfile;
 use App\Http\Requests\StoreBookingRequest;
 use App\Http\Requests\UpdateBookingRequest;
@@ -11,52 +12,67 @@ use App\Http\Resources\BookingResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use App\Events\BookingCreated;
 use App\Events\BookingUpdated;
 
 class BookingController extends Controller
 {
+
     /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
     {
-        $query = Booking::query();
+        $user = Auth::user();
 
-        // Filter by student_id if provided or if student is requesting
-        if ($request->has('student_id') || Auth::user()->role === 'student') {
-            $studentId = $request->student_id ?? Auth::id();
-            $query->where('student_id', $studentId);
+        // Base query
+        $query = Booking::with(['mentorProfile.user', 'mentorAvailabilitie', 'payment', 'review']);
+
+        // Filter based on user role
+        if ($user->role === 'student') {
+            $query->where('user_id', $user->id);
+        } elseif ($user->role === 'mentor') {
+            $mentorProfile = $user->mentorProfile;
+            if (!$mentorProfile) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Profil mentor tidak ditemukan'
+                ], 404);
+            }
+            $query->where('mentor_profile_id', $mentorProfile->id);
         }
+        // Admin dapat melihat semua booking
 
-        // Filter by mentor_id if provided or if mentor is requesting
-        if ($request->has('mentor_id') || Auth::user()->role === 'mentor') {
-            $mentorId = $request->mentor_id ?? Auth::id();
-            $query->where('mentor_id', $mentorId);
-        }
-
-        // Filter by status if provided
+        // Filter berdasarkan status
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
 
-        // Filter by date range if provided
+        // Filter berdasarkan rentang tanggal
         if ($request->has('start_date')) {
-            $query->where('scheduled_at', '>=', $request->start_date);
+            $query->where('session_date', '>=', $request->start_date);
         }
 
         if ($request->has('end_date')) {
-            $query->where('scheduled_at', '<=', $request->end_date);
+            $query->where('session_date', '<=', $request->end_date);
         }
 
-        $bookings = $query->with(['student', 'mentor', 'mentorProfile'])
-            ->latest()
-            ->paginate($request->per_page ?? 10);
+        // Urutkan
+        $sortField = $request->sort_by ?? 'created_at';
+        $sortOrder = $request->sort_order ?? 'desc';
+        $allowedSortFields = ['session_date', 'created_at', 'status'];
+
+        if (in_array($sortField, $allowedSortFields)) {
+            $query->orderBy($sortField, $sortOrder);
+        }
+
+        $bookings = $query->paginate($request->per_page ?? 10);
 
         return BookingResource::collection($bookings)
             ->additional([
                 'success' => true,
-                'message' => 'Bookings retrieved successfully'
+                'message' => 'Daftar booking berhasil diambil'
             ]);
     }
 
@@ -73,41 +89,84 @@ class BookingController extends Controller
      */
     public function store(StoreBookingRequest $request)
     {
-        // Pastikan hanya student yang bisa membuat booking
-        if (Auth::user()->role !== 'student') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Hanya student yang dapat membuat booking'
-            ], 403);
-        }
-
         try {
+            // Verifikasi bahwa user memiliki izin untuk membuat booking
+            if (!Gate::allows('create-booking')) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             DB::beginTransaction();
 
             $validated = $request->validated();
-            $validated['student_id'] = Auth::id();
-            $validated['status'] = 'pending';
-            $validated['booking_code'] = 'BK-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), 0, 6));
+            $validated['user_id'] = Auth::id();
+            $validated['status'] = 'pending'; // Default status for new bookings
 
-            // Cek ketersediaan mentor
+            // Verify mentor availability
             $mentorProfile = MentorProfile::findOrFail($validated['mentor_profile_id']);
-            if (!$mentorProfile->is_available) {
+            $mentorAvailability = MentorAvailabilitie::findOrFail($validated['mentor_availabilitie_id']);
+
+            if ($mentorAvailability->mentor_profile_id !== $mentorProfile->id) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Mentor tidak tersedia untuk booking saat ini'
-                ], 400);
+                    'message' => 'Ketersediaan tidak terkait dengan mentor yang dipilih'
+                ], 422);
             }
 
-            // Set mentor_id dari mentor_profile
-            $validated['mentor_id'] = $mentorProfile->user_id;
+            // Check if the mentor is available on the requested date and time
+            $dayOfWeek = strtolower(date('l', strtotime($validated['session_date'])));
 
-            // Buat booking
+            if ($dayOfWeek !== $mentorAvailability->day_of_week) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Mentor tidak tersedia pada hari yang dipilih'
+                ], 422);
+            }
+
+            // Validate session time is within availability time
+            $sessionStartTime = date('H:i:s', strtotime($validated['session_time']));
+            $sessionEndTime = date('H:i:s', strtotime($validated['session_time']) + ($validated['duration'] * 60));
+
+            if ($sessionStartTime < $mentorAvailability->start_time ||
+                $sessionEndTime > $mentorAvailability->end_time) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Waktu sesi tidak dalam rentang ketersediaan mentor'
+                ], 422);
+            }
+
+            // Check for booking conflicts
+            $conflictingBooking = Booking::where('mentor_profile_id', $validated['mentor_profile_id'])
+                ->where('session_date', $validated['session_date'])
+                ->where(function($query) use ($sessionStartTime, $sessionEndTime) {
+                    $query->where(function($q) use ($sessionStartTime, $sessionEndTime) {
+                        $q->where('session_time', '<=', $sessionStartTime)
+                          ->whereRaw("ADDTIME(session_time, SEC_TO_TIME(duration * 60)) > ?", [$sessionStartTime]);
+                    })->orWhere(function($q) use ($sessionStartTime, $sessionEndTime) {
+                        $q->where('session_time', '<', $sessionEndTime)
+                          ->where('session_time', '>=', $sessionStartTime);
+                    });
+                })
+                ->whereIn('status', ['pending', 'confirmed'])
+                ->first();
+
+            if ($conflictingBooking) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Mentor sudah memiliki booking pada waktu yang dipilih'
+                ], 422);
+            }
+
+            // Calculate total price based on mentor's hourly rate and session duration
+            $hourlyRate = $mentorProfile->hourly_rate;
+            $durationInHours = $validated['duration'] / 60;
+            $validated['total_price'] = $hourlyRate * $durationInHours;
+
             $booking = Booking::create($validated);
 
-            // Load relasi untuk broadcast event
-            $booking->load(['student', 'mentor', 'mentorProfile']);
-
-            // Broadcast event BookingCreated
+            // Trigger event for notification
             event(new BookingCreated($booking));
 
             DB::commit();
@@ -115,13 +174,14 @@ class BookingController extends Controller
             return (new BookingResource($booking))
                 ->additional([
                     'success' => true,
-                    'message' => 'Booking created successfully'
+                    'message' => 'Booking berhasil dibuat'
                 ]);
+
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create booking',
+                'message' => 'Gagal membuat booking',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -132,15 +192,18 @@ class BookingController extends Controller
      */
     public function show(Booking $booking)
     {
-        // Check if user is authorized to view this booking
-        $this->authorize('view', $booking);
+        // Verifikasi bahwa user memiliki akses ke booking ini
+        if (!Gate::allows('view-booking', $booking)) {
+            return response()->json([
+                'message' => 'Unauthorized.',
+                'code' => 403
+            ], 403);
+        }
 
-        $booking->load(['student', 'mentor', 'mentorProfile']);
-
-        return (new BookingResource($booking))
+        return (new BookingResource($booking->load(['mentorProfile.user', 'mentorAvailabilitie', 'payment', 'review'])))
             ->additional([
                 'success' => true,
-                'message' => 'Booking retrieved successfully'
+                'message' => 'Detail booking berhasil diambil'
             ]);
     }
 
@@ -157,35 +220,80 @@ class BookingController extends Controller
      */
     public function update(UpdateBookingRequest $request, Booking $booking)
     {
-        // Check if user is authorized to update this booking
-        $this->authorize('update', $booking);
-
         try {
+            // Verifikasi bahwa user memiliki izin untuk mengupdate booking
+            if (!Gate::allows('update-booking', $booking)) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
+            DB::beginTransaction();
+
             $validated = $request->validated();
+            $originalStatus = $booking->status;
 
-            // Simpan status lama untuk event
-            $oldStatus = $booking->status;
+            // Jika mengubah status booking
+            if (isset($validated['status']) && $validated['status'] !== $originalStatus) {
+                $newStatus = $validated['status'];
 
-            // Update booking
+                // Validasi perubahan status
+                $user = Auth::user();
+
+                // Student hanya dapat membatalkan booking (cancel)
+                if ($user->role === 'student' && $newStatus !== 'cancelled') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Student hanya dapat membatalkan booking'
+                    ], 422);
+                }
+
+                // Mentor hanya dapat mengkonfirmasi, menolak, atau menyelesaikan booking
+                if ($user->role === 'mentor' && !in_array($newStatus, ['confirmed', 'rejected', 'completed'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Mentor hanya dapat mengkonfirmasi, menolak, atau menyelesaikan booking'
+                    ], 422);
+                }
+
+                // Booking yang sudah selesai, dibatalkan, atau ditolak tidak dapat diubah lagi
+                if (in_array($originalStatus, ['completed', 'cancelled', 'rejected'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Booking yang sudah {$originalStatus} tidak dapat diubah lagi"
+                    ], 422);
+                }
+
+                // Booking yang belum dikonfirmasi tidak dapat diselesaikan
+                if ($newStatus === 'completed' && $originalStatus !== 'confirmed') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Booking harus dikonfirmasi terlebih dahulu sebelum diselesaikan'
+                    ], 422);
+                }
+            }
+
             $booking->update($validated);
 
-            // Reload booking dengan relasi
-            $booking->load(['student', 'mentor', 'mentorProfile']);
-
-            // Jika status berubah, broadcast event BookingUpdated
-            if ($oldStatus !== $booking->status) {
-                event(new BookingUpdated($booking, $oldStatus));
+            // Trigger event for notification if status changed
+            if (isset($validated['status']) && $validated['status'] !== $originalStatus) {
+                event(new BookingUpdated($booking));
             }
+
+            DB::commit();
 
             return (new BookingResource($booking))
                 ->additional([
                     'success' => true,
-                    'message' => 'Booking updated successfully'
+                    'message' => 'Booking berhasil diperbarui'
                 ]);
+
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update booking',
+                'message' => 'Gagal memperbarui booking',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -196,34 +304,42 @@ class BookingController extends Controller
      */
     public function destroy(Booking $booking)
     {
-        // Check if user is authorized to cancel this booking
-        $this->authorize('delete', $booking);
-
         try {
-            // Simpan status lama untuk event
-            $oldStatus = $booking->status;
+            // Verifikasi bahwa user memiliki izin untuk menghapus booking
+            if (!Gate::allows('delete-booking', $booking)) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
 
-            // Update status menjadi cancelled
-            $booking->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now(),
-                'cancellation_reason' => request('cancellation_reason', 'Dibatalkan oleh pengguna')
-            ]);
+            // Hanya admin yang dapat menghapus booking
+            if (Auth::user()->role !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Hanya admin yang dapat menghapus booking'
+                ], 403);
+            }
 
-            // Reload booking dengan relasi
-            $booking->load(['student', 'mentor', 'mentorProfile']);
+            // Booking tidak dapat dihapus jika sudah ada pembayaran
+            if ($booking->payment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Booking tidak dapat dihapus karena sudah ada pembayaran'
+                ], 422);
+            }
 
-            // Broadcast event BookingUpdated
-            event(new BookingUpdated($booking, $oldStatus));
+            $booking->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Booking cancelled successfully'
+                'message' => 'Booking berhasil dihapus'
             ]);
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to cancel booking',
+                'message' => 'Gagal menghapus booking',
                 'error' => $e->getMessage()
             ], 500);
         }

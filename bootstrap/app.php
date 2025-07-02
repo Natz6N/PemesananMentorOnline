@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureUserHasRole::class,
             'user.active' => \App\Http\Middleware\EnsureUserIsActive::class,
             'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+            'api.limiter' => \App\Http\Middleware\ApiRateLimiter::class,
         ]);
 
         // Add api group middlewares

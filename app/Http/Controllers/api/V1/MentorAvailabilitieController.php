@@ -11,16 +11,10 @@ use App\Http\Resources\MentorAvailabilityResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class MentorAvailabilitieController extends Controller
 {
-    /**
-     * Create a new controller instance.
-     */
-    public function __construct()
-    {
-        $this->authorizeResource(MentorAvailabilitie::class, 'mentorAvailabilitie');
-    }
 
     /**
      * Display a listing of the resource.
@@ -102,7 +96,7 @@ class MentorAvailabilitieController extends Controller
             $mentorProfile = MentorProfile::findOrFail($mentorId);
 
             // Authorisasi dengan gate
-            if (!Auth::user()->can('manage-availability') ||
+            if (!Gate::allows('manage-availability') ||
                 (Auth::user()->role === 'mentor' && $mentorProfile->user_id !== Auth::id())) {
                 return response()->json([
                     'message' => 'Unauthorized.',
@@ -156,6 +150,14 @@ class MentorAvailabilitieController extends Controller
     public function store(StoreMentorAvailabilitieRequest $request)
     {
         try {
+            // Verifikasi bahwa user memiliki izin untuk membuat ketersediaan
+            if (!Gate::allows('manage-availability')) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             $validated = $request->validated();
 
             // Check if mentor_profile_id belongs to the authenticated user (if mentor)
@@ -191,6 +193,14 @@ class MentorAvailabilitieController extends Controller
     public function show(MentorAvailabilitie $mentorAvailabilitie)
     {
         try {
+            // Verifikasi bahwa user memiliki izin untuk melihat ketersediaan
+            if (!Gate::allows('manage-availability', $mentorAvailabilitie) && Auth::user()->role !== 'admin') {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             return (new MentorAvailabilityResource($mentorAvailabilitie))
                 ->additional([
                     'success' => true,
@@ -211,6 +221,14 @@ class MentorAvailabilitieController extends Controller
     public function update(UpdateMentorAvailabilitieRequest $request, MentorAvailabilitie $mentorAvailabilitie)
     {
         try {
+            // Verifikasi bahwa user memiliki izin untuk mengupdate ketersediaan
+            if (!Gate::allows('manage-availability', $mentorAvailabilitie) && Auth::user()->role !== 'admin') {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             $validated = $request->validated();
             $mentorAvailabilitie->update($validated);
 
@@ -234,6 +252,14 @@ class MentorAvailabilitieController extends Controller
     public function destroy(MentorAvailabilitie $mentorAvailabilitie)
     {
         try {
+            // Verifikasi bahwa user memiliki izin untuk menghapus ketersediaan
+            if (!Gate::allows('manage-availability', $mentorAvailabilitie) && Auth::user()->role !== 'admin') {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
             $mentorAvailabilitie->delete();
 
             return response()->json([

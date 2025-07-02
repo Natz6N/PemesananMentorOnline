@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Validator;
 use App\Http\Requests\StoreUserRequest;
 use App\Services\FileStorageService;
 use App\Http\Requests\UpdateUserRequest;
+use App\Http\Resources\UserResource;
+use Illuminate\Validation\ValidationException;
+
 class AuthController extends Controller
 {
     private FileStorageService $fileService;
@@ -23,33 +26,62 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         try {
-            $credentials = $request->only('email', 'password');
+            $validator = Validator::make($request->all(), [
+                'email' => 'required|email',
+                'password' => 'required|string|min:8',
+            ]);
 
-            if (!Auth::attempt($credentials)) {
+            if ($validator->fails()) {
                 return response()->json([
-                    'message' => 'Email atau password salah'
-                ], 401);
+                    'success' => false,
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
+                ], 422);
             }
 
-            $user = Auth::user();
+            // Check email
+            $user = User::where('email', $request->email)->first();
 
-            // Hapus token lama (opsional, kalau hanya 1 login per user)
+            // Check password
+            if (!$user || !Hash::check($request->password, $user->password)) {
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+
+            // Check if user is active
+            if (!$user->is_active) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account is inactive. Please contact support.'
+                ], 403);
+            }
+
+            // Revoke existing tokens
             $user->tokens()->delete();
 
-            // Buat token baru
+            // Generate new token
             $token = $user->createToken('auth_token')->plainTextToken;
 
+            return (new UserResource($user))
+                ->additional([
+                    'success' => true,
+                    'message' => 'Login successful',
+                    'token' => $token
+                ]);
+        } catch (ValidationException $e) {
             return response()->json([
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-                'user' => $user->only(['id', 'name', 'email', 'role']) // aman!
-            ]);
+                'success' => false,
+                'message' => 'Invalid credentials',
+                'errors' => $e->errors()
+            ], 401);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => $e->getMessage()
-            ], 400);
+                'success' => false,
+                'message' => 'Login failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
     }
 
     /**
@@ -58,37 +90,32 @@ class AuthController extends Controller
     public function register(StoreUserRequest $request)
     {
         try {
+            $validated = $request->validated();
 
-            $validatedData = $request->validated();
+            // Hash password
+            $validated['password'] = Hash::make($validated['password']);
 
-            $user = User::create([
-                'name' => $validatedData['name'],
-                'email' => $validatedData['email'],
-                'phone' => $validatedData['phone'] ?? null,
-                'password' => Hash::make($validatedData['password']),
-            ]);
+            // Set default role and status
+            $validated['role'] = $validated['role'] ?? 'student';
+            $validated['is_active'] = true;
 
-            // buat token
+            // Create user
+            $user = User::create($validated);
+
+            // Generate token
             $token = $user->createToken('auth_token')->plainTextToken;
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Registration successful',
-                'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'phone' => $user->phone,
-                    ],
-                    'access_token' => $token,
-                    'token_type' => 'Bearer'
-                ]
-            ], 201);
+            return (new UserResource($user))
+                ->additional([
+                    'success' => true,
+                    'message' => 'User registered successfully',
+                    'token' => $token
+                ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Registration failed: ' . $e->getMessage()
+                'message' => 'Failed to register user',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -99,18 +126,18 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         try {
-            // Hapus token yang sedang digunakan
+            // Revoke the token that was used to authenticate the current request
             $request->user()->currentAccessToken()->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Logout successful'
-            ], 200);
-
+                'message' => 'Successfully logged out'
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Logout failed: ' . $e->getMessage()
+                'message' => 'Failed to logout',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -278,4 +305,30 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Get authenticated user
+     */
+    public function me(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            // Load relationships if needed
+            if ($user->role === 'mentor') {
+                $user->load('mentorProfile.categories');
+            }
+
+            return (new UserResource($user))
+                ->additional([
+                    'success' => true,
+                    'message' => 'User data retrieved successfully'
+                ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve user data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
