@@ -13,7 +13,8 @@ class MentorAvailabilitiePolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        // Admin dan student dapat melihat semua ketersediaan mentor
+        return $user->status === 'active';
     }
 
     /**
@@ -21,7 +22,8 @@ class MentorAvailabilitiePolicy
      */
     public function view(User $user, MentorAvailabilitie $mentorAvailabilitie): bool
     {
-        return false;
+        // Semua user aktif dapat melihat ketersediaan mentor
+        return $user->status === 'active';
     }
 
     /**
@@ -29,7 +31,9 @@ class MentorAvailabilitiePolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        // Hanya mentor dan admin yang dapat membuat ketersediaan
+        return $user->status === 'active' &&
+              ($user->role === 'mentor' || $user->role === 'admin');
     }
 
     /**
@@ -37,6 +41,17 @@ class MentorAvailabilitiePolicy
      */
     public function update(User $user, MentorAvailabilitie $mentorAvailabilitie): bool
     {
+        // Admin dapat mengupdate semua ketersediaan
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Mentor hanya dapat mengupdate ketersediaannya sendiri
+        if ($user->role === 'mentor') {
+            $mentorProfile = $mentorAvailabilitie->mentorProfile;
+            return $user->status === 'active' && $user->id === $mentorProfile->user_id;
+        }
+
         return false;
     }
 
@@ -45,6 +60,17 @@ class MentorAvailabilitiePolicy
      */
     public function delete(User $user, MentorAvailabilitie $mentorAvailabilitie): bool
     {
+        // Admin dapat menghapus semua ketersediaan
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Mentor hanya dapat menghapus ketersediaannya sendiri
+        if ($user->role === 'mentor') {
+            $mentorProfile = $mentorAvailabilitie->mentorProfile;
+            return $user->status === 'active' && $user->id === $mentorProfile->user_id;
+        }
+
         return false;
     }
 
@@ -53,7 +79,8 @@ class MentorAvailabilitiePolicy
      */
     public function restore(User $user, MentorAvailabilitie $mentorAvailabilitie): bool
     {
-        return false;
+        // Hanya admin yang dapat restore
+        return $user->status === 'active' && $user->role === 'admin';
     }
 
     /**
@@ -61,6 +88,7 @@ class MentorAvailabilitiePolicy
      */
     public function forceDelete(User $user, MentorAvailabilitie $mentorAvailabilitie): bool
     {
-        return false;
+        // Hanya admin yang dapat force delete
+        return $user->status === 'active' && $user->role === 'admin';
     }
 }

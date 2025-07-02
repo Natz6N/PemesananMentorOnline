@@ -11,10 +11,21 @@ use App\Http\Resources\MentorProfileResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class MentorProfileController extends Controller
 {
-        /**
+    /**
+     * Create a new controller instance.
+     */
+    public function __construct()
+    {
+        $this->authorizeResource(MentorProfile::class, 'mentorProfile', [
+            'except' => ['index', 'show', 'getMentorOwnProfile']
+        ]);
+    }
+
+    /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
@@ -63,7 +74,36 @@ class MentorProfileController extends Controller
         return MentorProfileResource::collection($mentors)
             ->additional([
                 'success' => true,
-                'message' => 'Mentor profiles retrieved successfully'
+                'message' => 'Daftar profil mentor berhasil diambil'
+            ]);
+    }
+
+    /**
+     * Mendapatkan profil mentor sendiri.
+     */
+    public function getMentorOwnProfile()
+    {
+        // Verifikasi bahwa user adalah mentor dan aktif
+        if (!Gate::allows('manage-mentor-profile')) {
+            return response()->json([
+                'message' => 'Unauthorized.',
+                'code' => 403
+            ], 403);
+        }
+
+        $mentorProfile = Auth::user()->mentorProfile()->with(['categories', 'availabilities'])->first();
+
+        if (!$mentorProfile) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil mentor belum dibuat',
+            ], 404);
+        }
+
+        return (new MentorProfileResource($mentorProfile))
+            ->additional([
+                'success' => true,
+                'message' => 'Profil mentor berhasil diambil'
             ]);
     }
 
@@ -73,11 +113,27 @@ class MentorProfileController extends Controller
     public function store(StoreMentorProfileRequest $request)
     {
         try {
+            // Verifikasi bahwa user adalah mentor dan aktif
+            if (!Gate::allows('manage-mentor-profile')) {
+                return response()->json([
+                    'message' => 'Unauthorized.',
+                    'code' => 403
+                ], 403);
+            }
+
+            // Verifikasi bahwa user belum memiliki profil mentor
+            if (Auth::user()->mentorProfile) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda sudah memiliki profil mentor'
+                ], 422);
+            }
+
             DB::beginTransaction();
 
             $validated = $request->validated();
             $validated['user_id'] = Auth::id();
-            $validated['status'] = 'pending'; // New profiles need admin approval
+            $validated['status'] = 'pending'; // Profil baru perlu persetujuan admin
             $validated['rating_average'] = 0;
             $validated['total_reviews'] = 0;
             $validated['total_sessions'] = 0;
@@ -101,19 +157,19 @@ class MentorProfileController extends Controller
             return (new MentorProfileResource($mentorProfile))
                 ->additional([
                     'success' => true,
-                    'message' => 'Mentor profile created successfully and pending approval'
+                    'message' => 'Profil mentor berhasil dibuat dan menunggu persetujuan'
                 ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create mentor profile',
+                'message' => 'Gagal membuat profil mentor',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-        /**
+    /**
      * Display the specified resource.
      */
     public function show(string $id)
@@ -125,12 +181,12 @@ class MentorProfileController extends Controller
             return (new MentorProfileResource($mentorProfile))
                 ->additional([
                     'success' => true,
-                    'message' => 'Mentor profile retrieved successfully'
+                    'message' => 'Profil mentor berhasil diambil'
                 ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Mentor profile not found',
+                'message' => 'Profil mentor tidak ditemukan',
                 'error' => $e->getMessage()
             ], 404);
         }
@@ -139,20 +195,10 @@ class MentorProfileController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateMentorProfileRequest $request, string $id)
+    public function update(UpdateMentorProfileRequest $request, MentorProfile $mentorProfile)
     {
         try {
             DB::beginTransaction();
-
-            $mentorProfile = MentorProfile::findOrFail($id);
-
-            // Check authorization
-            if ($mentorProfile->user_id !== Auth::id() && Auth::user()->role !== 'admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'You are not authorized to update this profile'
-                ], 403);
-            }
 
             $validated = $request->validated();
 
@@ -180,13 +226,13 @@ class MentorProfileController extends Controller
             return (new MentorProfileResource($mentorProfile))
                 ->additional([
                     'success' => true,
-                    'message' => 'Mentor profile updated successfully'
+                    'message' => 'Profil mentor berhasil diperbarui'
                 ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update mentor profile',
+                'message' => 'Gagal memperbarui profil mentor',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -195,19 +241,9 @@ class MentorProfileController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(MentorProfile $mentorProfile)
     {
         try {
-            $mentorProfile = MentorProfile::findOrFail($id);
-
-            // Check authorization
-            if ($mentorProfile->user_id !== Auth::id() && Auth::user()->role !== 'admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'You are not authorized to delete this profile'
-                ], 403);
-            }
-
             // Delete related categories
             MentorCategory::where('mentor_profile_id', $mentorProfile->id)->delete();
 
@@ -216,12 +252,12 @@ class MentorProfileController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Mentor profile deleted successfully'
+                'message' => 'Profil mentor berhasil dihapus'
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete mentor profile',
+                'message' => 'Gagal menghapus profil mentor',
                 'error' => $e->getMessage()
             ], 500);
         }

@@ -3,8 +3,8 @@
 <div align="center">
   <img src="https://via.placeholder.com/200x200/4F46E5/FFFFFF?text=MC" alt="MentorConnect API Logo" width="200"/>
   
-  [![Laravel](https://img.shields.io/badge/Laravel-10.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
-  [![PHP](https://img.shields.io/badge/PHP-8.1+-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://php.net)
+  [![Laravel](https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
+  [![PHP](https://img.shields.io/badge/PHP-8.3+-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://php.net)
   [![MySQL](https://img.shields.io/badge/MySQL-8.0+-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://mysql.com)
   [![API](https://img.shields.io/badge/REST-API-blue?style=for-the-badge)](https://restfulapi.net)
   [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
@@ -12,11 +12,11 @@
 
 ## 📋 About Project
 
-**MentorConnect API** adalah backend service untuk platform pencarian dan booking mentor. API ini menyediakan endpoints lengkap untuk mengelola mentor, student, booking session, pembayaran, dan sistem review. Dibangun dengan Laravel 10 dan menggunakan RESTful API architecture yang dapat diintegrasikan dengan berbagai frontend framework.
+**MentorConnect API** adalah backend service untuk platform pencarian dan booking mentor. API ini menyediakan endpoints lengkap untuk mengelola mentor, student, booking session, pembayaran, dan sistem review. Dibangun dengan Laravel 12 dan menggunakan RESTful API architecture yang dapat diintegrasikan dengan berbagai frontend framework.
 
 ### ✨ API Features
 
-- 🔐 **Authentication & Authorization** - JWT token-based dengan role management
+- 🔐 **Authentication & Authorization** - Sanctum untuk autentikasi dan Gate/Policy untuk otorisasi
 - 👥 **User Management** - Register, login, profile management untuk Student & Mentor
 - 🏷️ **Category System** - Manajemen kategori keahlian mentor
 - 👨‍🏫 **Mentor Profiles** - CRUD operations untuk profil mentor lengkap
@@ -26,6 +26,7 @@
 - ⭐ **Review & Rating** - Sistem penilaian dan feedback
 - 🔍 **Advanced Search** - Filter mentor berdasarkan kategori, rating, harga
 - 📊 **Analytics Endpoints** - Dashboard data untuk admin
+- 🔄 **Realtime Updates** - Laravel Reverb untuk WebSockets communication
 
 ### 🎯 API Use Cases
 
@@ -41,11 +42,11 @@
 
 Pastikan sistem Anda memiliki requirements berikut:
 
-- PHP >= 8.1
+- PHP >= 8.3
 - Composer
 - Node.js & NPM
 - MySQL >= 8.0
-- Redis (optional, untuk caching)
+- Redis (untuk WebSockets dengan Laravel Reverb)
 
 ### Step-by-Step Installation
 
@@ -83,6 +84,12 @@ Pastikan sistem Anda memiliki requirements berikut:
    DB_DATABASE=mentorconnect
    DB_USERNAME=your_username
    DB_PASSWORD=your_password
+   
+   # WebSockets configuration
+   BROADCAST_DRIVER=reverb
+   REVERB_APP_ID=mentorconnect
+   REVERB_APP_KEY=your_reverb_key
+   REVERB_APP_SECRET=your_reverb_secret
    ```
 
 5. **Run Migrations & Seeders**
@@ -103,18 +110,13 @@ Pastikan sistem Anda memiliki requirements berikut:
    chmod -R 775 storage bootstrap/cache
    ```
 
-7. **Compile Assets**
+7. **Start Development Server**
    ```bash
-   # Development
-   npm run dev
-   
-   # Production
-   npm run build
-   ```
-
-8. **Start Development Server**
-   ```bash
+   # Start Laravel server
    php artisan serve
+   
+   # Start Reverb WebSocket server
+   php artisan reverb:start
    ```
 
    Aplikasi akan berjalan di `http://localhost:8000`
@@ -135,72 +137,109 @@ Authorization: Bearer {your-token-here}
 Content-Type: application/json
 ```
 
+### Role-Based Access Control
+API menggunakan sistem role-based access control:
+- **Admin**: Akses penuh ke semua data dan endpoints
+- **Mentor**: Mengelola profil, availability, dan booking sessions
+- **Student**: Mencari mentor, membuat booking, dan memberikan review
+
 ### Core API Endpoints
 
 #### 🔐 Authentication
 ```http
 POST   /api/register                    # User registration
 POST   /api/login                       # User login
-POST   /api/logout                      # User logout
-GET    /api/user                        # Get authenticated user
-PUT    /api/profile                     # Update user profile
+POST   /api/auth/logout                 # User logout
+GET    /api/auth/profile                # Get authenticated user
+POST   /api/auth/update-profile         # Update user profile
+POST   /api/auth/change-password        # Change password
+POST   /api/auth/refresh-token          # Refresh token
 ```
 
-#### 👥 User Management
+#### 👥 User Management (Admin)
 ```http
-GET    /api/users                       # Get all users (admin)
-GET    /api/users/{id}                  # Get user detail
-PUT    /api/users/{id}                  # Update user
-DELETE /api/users/{id}                  # Delete user (admin)
+GET    /api/admin/users                 # Get all users
+GET    /api/admin/users/{user}          # Get user detail
+PUT    /api/admin/users/{user}          # Update user
+DELETE /api/admin/users/{user}          # Delete user
 ```
 
 #### 🏷️ Categories
 ```http
-GET    /api/categories                  # Get all categories
-POST   /api/categories                  # Create category (admin)
-GET    /api/categories/{id}             # Get category detail
-PUT    /api/categories/{id}             # Update category (admin)
-DELETE /api/categories/{id}             # Delete category (admin)
+GET    /api/categories                  # Get all categories (public)
+GET    /api/categories/{category}       # Get category detail (public)
+POST   /api/admin/categories            # Create category (admin)
+PUT    /api/admin/categories/{category} # Update category (admin)
+DELETE /api/admin/categories/{category} # Delete category (admin)
 ```
 
 #### 👨‍🏫 Mentors
 ```http
-GET    /api/mentors                     # Get all mentors with filters
-POST   /api/mentors                     # Create mentor profile
-GET    /api/mentors/{id}                # Get mentor detail
-PUT    /api/mentors/{id}                # Update mentor profile
-DELETE /api/mentors/{id}                # Delete mentor profile
-GET    /api/mentors/{id}/availability   # Get mentor availability
-POST   /api/mentors/{id}/availability   # Set mentor availability
-GET    /api/mentors/{id}/reviews        # Get mentor reviews
+GET    /api/mentors                     # Get all mentors with filters (public)
+GET    /api/mentors/{id}                # Get mentor detail (public)
+GET    /api/mentors/{id}/availability   # Get mentor availability (public)
+GET    /api/mentors/{id}/reviews        # Get mentor reviews (public)
+
+GET    /api/mentor/profile              # Get own mentor profile (mentor)
+POST   /api/mentor/profile              # Create mentor profile (mentor)
+PUT    /api/mentor/profile/{id}         # Update mentor profile (mentor)
+
+PUT    /api/admin/mentors/{id}          # Update mentor profile (admin)
+DELETE /api/admin/mentors/{id}          # Delete mentor profile (admin)
+```
+
+#### 📅 Mentor Availability
+```http
+GET    /api/mentor/availabilities                      # Get own availabilities (mentor)
+POST   /api/mentor/availabilities                      # Create availability (mentor)
+PUT    /api/mentor/availabilities/{availability}       # Update availability (mentor)
+DELETE /api/mentor/availabilities/{availability}       # Delete availability (mentor)
+POST   /api/mentor/availabilities/bulk                 # Bulk update availability (mentor)
 ```
 
 #### 📋 Bookings
 ```http
-GET    /api/bookings                    # Get user bookings
-POST   /api/bookings                    # Create new booking
-GET    /api/bookings/{id}               # Get booking detail
-PUT    /api/bookings/{id}               # Update booking
-DELETE /api/bookings/{id}               # Cancel booking
-PUT    /api/bookings/{id}/confirm       # Confirm booking (mentor)
-PUT    /api/bookings/{id}/complete      # Complete booking (mentor)
+GET    /api/student/bookings                  # Get own bookings (student)
+POST   /api/student/bookings                  # Create new booking (student)
+GET    /api/student/bookings/{booking}        # Get booking detail (student)
+PUT    /api/student/bookings/{booking}        # Update booking (student)
+DELETE /api/student/bookings/{booking}        # Cancel booking (student)
+
+GET    /api/mentor/bookings                   # Get assigned bookings (mentor)
+GET    /api/mentor/bookings/{booking}         # Get booking detail (mentor)
+PUT    /api/mentor/bookings/{booking}         # Update booking details (mentor)
+PUT    /api/mentor/bookings/{booking}/confirm # Confirm booking (mentor)
+PUT    /api/mentor/bookings/{booking}/complete # Complete booking (mentor)
+
+GET    /api/admin/bookings                    # Get all bookings (admin)
+GET    /api/admin/bookings/{booking}          # Get booking detail (admin)
+PUT    /api/admin/bookings/{booking}          # Update booking (admin)
+DELETE /api/admin/bookings/{booking}          # Cancel booking (admin)
 ```
 
 #### 💳 Payments
 ```http
-GET    /api/payments                    # Get payment history
-POST   /api/payments                    # Process payment
-GET    /api/payments/{id}               # Get payment detail
-POST   /api/payments/webhook            # Payment gateway webhook
+GET    /api/student/payments                 # Get payment history (student)
+POST   /api/student/payments                 # Process payment (student)
+GET    /api/student/payments/{payment}       # Get payment detail (student)
+
+GET    /api/admin/payments                   # Get all payments (admin)
+GET    /api/admin/payments/{payment}         # Get payment detail (admin)
+
+POST   /api/webhook/payment                  # Payment gateway webhook (public)
 ```
 
 #### ⭐ Reviews
 ```http
-GET    /api/reviews                     # Get reviews
-POST   /api/reviews                     # Create review
-GET    /api/reviews/{id}                # Get review detail
-PUT    /api/reviews/{id}                # Update review
-DELETE /api/reviews/{id}                # Delete review
+POST   /api/student/bookings/{booking}/reviews   # Create review for booking (student)
+GET    /api/student/reviews                      # Get own reviews (student)
+PUT    /api/student/reviews/{review}             # Update review (student)
+DELETE /api/student/reviews/{review}             # Delete review (student)
+
+GET    /api/admin/reviews                        # Get all reviews (admin)
+GET    /api/admin/reviews/{review}               # Get review detail (admin)
+PUT    /api/admin/reviews/{review}               # Update review (admin)
+DELETE /api/admin/reviews/{review}               # Delete review (admin)
 ```
 
 ### 📝 Request/Response Examples
@@ -239,7 +278,7 @@ Content-Type: application/json
 
 #### Search Mentors
 ```http
-GET /api/mentors?category=programming&min_rating=4&max_price=100&sort=rating
+GET /api/mentors?category_id=1&min_rating=4&max_rate=100&sort_by=rating_average&sort_order=desc
 Authorization: Bearer {token}
 ```
 
@@ -247,6 +286,7 @@ Authorization: Bearer {token}
 ```json
 {
   "success": true,
+  "message": "Daftar profil mentor berhasil diambil",
   "data": {
     "mentors": [
       {
@@ -274,12 +314,12 @@ Authorization: Bearer {token}
 
 #### Create Booking
 ```http
-POST /api/bookings
+POST /api/student/bookings
 Authorization: Bearer {token}
 Content-Type: application/json
 
 {
-  "mentor_id": 1,
+  "mentor_profile_id": 1,
   "scheduled_at": "2024-01-15 10:00:00",
   "duration_minutes": 60,
   "session_topic": "Laravel Advanced Concepts",
@@ -291,6 +331,7 @@ Content-Type: application/json
 ```json
 {
   "success": true,
+  "message": "Booking berhasil dibuat",
   "data": {
     "booking": {
       "id": 1,
@@ -304,8 +345,7 @@ Content-Type: application/json
       "total_amount": 75.00,
       "status": "pending"
     }
-  },
-  "message": "Booking created successfully"
+  }
 }
 ```
 
@@ -316,8 +356,18 @@ Content-Type: application/json
 - **Language**: PHP 8.3+
 - **Architecture**: RESTful API
 - **Authentication**: Laravel Sanctum (Token-based)
+- **Authorization**: Gates & Policies
+- **WebSockets**: Laravel Reverb
 - **Validation**: Laravel Form Requests
 - **Eloquent ORM**: Database relationships and queries
+
+### Security Features
+- **Rate Limiting**: Throttle requests to prevent abuse
+- **Status Checks**: Middleware untuk memastikan user active
+- **Authorization Rules**: Gates dan Policies untuk RBAC
+- **Input Validation**: Form Request validation
+- **Mass Assignment Protection**: $fillable attributes
+- **Standardized Error Responses**: JSON-formatted errors
 
 ### Database & Storage
 - **Database**: MySQL 8.0+

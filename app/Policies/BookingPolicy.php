@@ -13,7 +13,13 @@ class BookingPolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        // Admin bisa melihat semua booking
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Mentor dan student hanya bisa melihat booking terkait mereka
+        return $user->status === 'active';
     }
 
     /**
@@ -21,6 +27,21 @@ class BookingPolicy
      */
     public function view(User $user, Booking $booking): bool
     {
+        // Admin bisa melihat semua booking
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Mentor hanya bisa melihat booking dimana mereka sebagai mentor
+        if ($user->role === 'mentor') {
+            return $user->status === 'active' && $user->id === $booking->mentor_id;
+        }
+
+        // Student hanya bisa melihat booking mereka sendiri
+        if ($user->role === 'student') {
+            return $user->status === 'active' && $user->id === $booking->student_id;
+        }
+
         return false;
     }
 
@@ -29,7 +50,8 @@ class BookingPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        // Hanya student yang bisa membuat booking
+        return $user->status === 'active' && $user->role === 'student';
     }
 
     /**
@@ -37,6 +59,25 @@ class BookingPolicy
      */
     public function update(User $user, Booking $booking): bool
     {
+        // Admin bisa mengupdate semua booking
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Mentor hanya bisa mengupdate booking dimana mereka sebagai mentor
+        // dan hanya untuk status dan mentor_notes
+        if ($user->role === 'mentor') {
+            return $user->status === 'active' && $user->id === $booking->mentor_id;
+        }
+
+        // Student hanya bisa mengupdate booking mereka sendiri
+        // dan hanya jika status masih pending
+        if ($user->role === 'student') {
+            return $user->status === 'active' &&
+                   $user->id === $booking->student_id &&
+                   $booking->status === 'pending';
+        }
+
         return false;
     }
 
@@ -45,6 +86,19 @@ class BookingPolicy
      */
     public function delete(User $user, Booking $booking): bool
     {
+        // Admin bisa menghapus semua booking
+        if ($user->role === 'admin') {
+            return $user->status === 'active';
+        }
+
+        // Student hanya bisa membatalkan booking mereka sendiri
+        // dan hanya jika status masih pending atau booking masih jauh (24 jam)
+        if ($user->role === 'student') {
+            return $user->status === 'active' &&
+                   $user->id === $booking->student_id &&
+                   $booking->canBeCancelled();
+        }
+
         return false;
     }
 
@@ -53,7 +107,8 @@ class BookingPolicy
      */
     public function restore(User $user, Booking $booking): bool
     {
-        return false;
+        // Hanya admin yang bisa restore
+        return $user->status === 'active' && $user->role === 'admin';
     }
 
     /**
@@ -61,6 +116,7 @@ class BookingPolicy
      */
     public function forceDelete(User $user, Booking $booking): bool
     {
-        return false;
+        // Hanya admin yang bisa force delete
+        return $user->status === 'active' && $user->role === 'admin';
     }
 }
