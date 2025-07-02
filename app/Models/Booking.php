@@ -9,11 +9,21 @@ class Booking extends Model
 {
     /** @use HasFactory<\Database\Factories\BookingFactory> */
     use HasFactory;
-     protected $fillable = [
-        'booking_code', 'student_id', 'mentor_id', 'mentor_profile_id',
-        'scheduled_at', 'duration_minutes', 'total_amount', 'session_topic',
-        'student_notes', 'mentor_notes', 'status', 'meeting_link',
-        'cancellation_reason', 'cancelled_at'
+    protected $fillable = [
+        'booking_code',
+        'student_id',
+        'mentor_id',
+        'mentor_profile_id',
+        'scheduled_at',
+        'duration_minutes',
+        'total_amount',
+        'session_topic',
+        'student_notes',
+        'mentor_notes',
+        'status',
+        'meeting_link',
+        'cancellation_reason',
+        'cancelled_at'
     ];
 
     protected $casts = [
@@ -52,7 +62,7 @@ class Booking extends Model
     public function scopeUpcoming($query)
     {
         return $query->where('scheduled_at', '>', now())
-                    ->whereIn('status', ['confirmed', 'pending']);
+            ->whereIn('status', ['confirmed', 'pending']);
     }
 
     public function scopeCompleted($query)
@@ -80,6 +90,6 @@ class Booking extends Model
     public function canBeCancelled()
     {
         return $this->scheduled_at > now()->addHours(24) &&
-               in_array($this->status, ['pending', 'confirmed']);
+            in_array($this->status, ['pending', 'confirmed']);
     }
 }

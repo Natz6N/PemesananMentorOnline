@@ -11,7 +11,7 @@ class StorecategoryRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,33 @@ class StorecategoryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'name' => 'required|string|max:255',
+            'slug' => 'required|string|max:255|unique:categories,slug',
+            'description' => 'nullable|string',
+            'icon' => 'nullable|file|mimes:jpg,jpeg,png,svg|max:2048',
+            'is_active' => 'boolean',
         ];
     }
+    public function messages()
+{
+    return [
+        'name.required' => 'Nama kategori wajib diisi.',
+        'name.string' => 'Nama kategori harus berupa teks.',
+        'name.max' => 'Nama kategori maksimal 255 karakter.',
+
+        'slug.required' => 'Slug wajib diisi.',
+        'slug.string' => 'Slug harus berupa teks.',
+        'slug.max' => 'Slug maksimal 255 karakter.',
+        'slug.unique' => 'Slug sudah digunakan. Silakan pilih slug lain yang unik.',
+
+        'description.string' => 'Deskripsi harus berupa teks.',
+
+        'icon.file' => 'Ikon harus berupa file.',
+        'icon.mimes' => 'Format ikon harus berupa jpg, jpeg, png, atau svg.',
+        'icon.max' => 'Ukuran ikon maksimal 2MB (2048 KB).',
+
+        'is_active.boolean' => 'Status aktif harus bernilai true atau false.',
+    ];
+}
+
 }
