@@ -52,8 +52,8 @@ Pastikan sistem Anda memiliki requirements berikut:
 
 1. **Clone Repository**
    ```bash
-   git clone https://github.com/yourusername/mentorconnect.git
-   cd mentorconnect
+   git clone https://github.com/Natz6N/PemesananMentorOnline.git
+   cd PemesananMentorOnline
    ```
 
 2. **Install Dependencies**
