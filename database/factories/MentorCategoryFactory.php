@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\Category;
+use App\Models\MentorProfile;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,7 +19,8 @@ class MentorCategoryFactory extends Factory
     public function definition(): array
     {
         return [
-            //
+            'mentor_profile_id' => MentorProfile::factory(),
+            'category_id' => Category::factory(),
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Auth;
 
 class UpdatePaymentRequest extends FormRequest
 {
@@ -11,7 +12,8 @@ class UpdatePaymentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        // Only admin can update payment status
+        return Auth::check() && Auth::user()->role === 'admin';
     }
 
     /**
@@ -22,7 +24,23 @@ class UpdatePaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'status' => 'required|string|in:pending,paid,failed,refunded',
+            'external_id' => 'nullable|string|max:100',
+            'payment_details' => 'nullable|array',
+            'paid_at' => 'nullable|date',
+        ];
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     *
+     * @return array
+     */
+    public function messages(): array
+    {
+        return [
+            'status.required' => 'Payment status is required',
+            'status.in' => 'The selected payment status is not valid',
         ];
     }
 }
