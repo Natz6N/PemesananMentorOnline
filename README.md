@@ -1,7 +1,7 @@
 # 🎓 MentorConnect API - Backend Platform Pencarian dan Booking Mentor
 
 <div align="center">
-  <img src="NatzLogo.png" alt="Apps Portofolio" width="200"/>
+  <img src="NatzLogo.png" alt="Apps Portofolio" width="100%"/>
   
   [![Laravel](https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
   [![PHP](https://img.shields.io/badge/PHP-8.3+-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://php.net)
