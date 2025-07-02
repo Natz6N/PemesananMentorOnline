@@ -211,8 +211,8 @@ POST /api/register
 Content-Type: application/json
 
 {
-  "name": "John Doe",
-  "email": "john@example.com",
+  "name": "natz",
+  "email": "natz@example.com",
   "password": "password123",
   "password_confirmation": "password123",
   "role": "student",
